@@ -1,0 +1,297 @@
+import tkinter as tk
+from tkinter import messagebox
+from datetime import datetime
+import sqlite3
+
+# Database setup
+def setup_database():
+    conn = sqlite3.connect('payroll_calculator.db')
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password TEXT NOT NULL
+                    )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        date TEXT NOT NULL,
+                        hourly_rate REAL NOT NULL,
+                        start_time TEXT NOT NULL,
+                        end_time TEXT NOT NULL,
+                        days_worked INTEGER NOT NULL,
+                        total_pay REAL NOT NULL,
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    )''')
+    conn.commit()
+    conn.close()
+
+def register():
+    username = entry_username.get()
+    password = entry_password.get()
+    conn = sqlite3.connect('payroll_calculator.db')
+    cursor = conn.cursor()
+    try:
+        cursor.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, password))
+        conn.commit()
+        messagebox.showinfo(translations[lang]["register_success"], translations[lang]["register_success_msg"])
+        show_login_screen()
+    except sqlite3.IntegrityError:
+        messagebox.showerror(translations[lang]["register_error"], translations[lang]["user_exists"])
+    conn.close()
+
+def login():
+    global current_user_id
+    username = entry_username.get()
+    password = entry_password.get()
+    conn = sqlite3.connect('payroll_calculator.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT id FROM users WHERE username = ? AND password = ?', (username, password))
+    user = cursor.fetchone()
+    if user:
+        current_user_id = user[0]
+        messagebox.showinfo(translations[lang]["login_success"], translations[lang]["login_success_msg"])
+        show_calculator_screen()
+    else:
+        messagebox.showerror(translations[lang]["login_error"], translations[lang]["login_fail"])
+    conn.close()
+
+def save_history(hourly_rate, start_time, end_time, days_worked, total_pay):
+    conn = sqlite3.connect('payroll_calculator.db')
+    cursor = conn.cursor()
+    cursor.execute('''INSERT INTO history (user_id, date, hourly_rate, start_time, end_time, days_worked, total_pay)
+                      VALUES (?, ?, ?, ?, ?, ?, ?)''', 
+                      (current_user_id, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), hourly_rate, start_time, end_time, days_worked, total_pay))
+    conn.commit()
+    conn.close()
+
+def show_history():
+    conn = sqlite3.connect('payroll_calculator.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT date, hourly_rate, start_time, end_time, days_worked, total_pay FROM history WHERE user_id = ?', (current_user_id,))
+    rows = cursor.fetchall()
+    history_text.delete('1.0', tk.END)
+    for row in rows:
+        history_text.insert(tk.END, f"Date: {row[0]}, Hourly Rate: {row[1]}, Start Time: {row[2]}, End Time: {row[3]}, Days Worked: {row[4]}, Total Pay: {row[5]:.2f}\n")
+    conn.close()
+
+def calculate_pay():
+    try:
+        hourly_rate = float(entry_hourly_rate.get())
+        start_time = datetime.strptime(entry_start_time.get(), "%H:%M")
+        end_time = datetime.strptime(entry_end_time.get(), "%H:%M")
+        days_worked = int(entry_days_worked.get())
+        
+        # Calculate hours worked
+        time_difference = end_time - start_time
+        hours_per_day = time_difference.total_seconds() / 3600.0
+        total_hours_worked = hours_per_day * days_worked
+        
+        total_pay = hourly_rate * total_hours_worked
+        label_result.config(text=translations[lang]["total_pay"].format(total_pay))
+        
+        save_history(hourly_rate, entry_start_time.get(), entry_end_time.get(), days_worked, total_pay)
+    except ValueError:
+        messagebox.showerror(translations[lang]["input_error"], translations[lang]["numeric_values"])
+
+def calculate_hours_needed():
+    try:
+        hourly_rate = float(entry_hourly_rate.get())
+        desired_amount = float(entry_desired_amount.get())
+        hours_needed = desired_amount / hourly_rate
+        label_result.config(text=translations[lang]["hours_needed"].format(hours_needed))
+    except ValueError:
+        messagebox.showerror(translations[lang]["input_error"], translations[lang]["numeric_values"])
+
+def clear_fields():
+    entry_hourly_rate.delete(0, tk.END)
+    entry_start_time.delete(0, tk.END)
+    entry_end_time.delete(0, tk.END)
+    entry_days_worked.delete(0, tk.END)
+    entry_desired_amount.delete(0, tk.END)
+    label_result.config(text="")
+
+def switch_language():
+    global lang
+    lang = "el" if lang == "en" else "en"
+    update_texts()
+
+def update_texts():
+    root.title(translations[lang]["title"])
+    label_brand.config(text=translations[lang]["brand"])
+    label_hourly_rate.config(text=translations[lang]["hourly_rate"])
+    label_start_time.config(text=translations[lang]["start_time"])
+    label_end_time.config(text=translations[lang]["end_time"])
+    label_days_worked.config(text=translations[lang]["days_worked"])
+    label_desired_amount.config(text=translations[lang]["desired_amount"])
+    button_calculate_pay.config(text=translations[lang]["calculate_pay"])
+    button_calculate_hours_needed.config(text=translations[lang]["calculate_hours_needed"])
+    button_clear.config(text=translations[lang]["clear"])
+    button_switch_language.config(text=translations[lang]["switch_language"])
+    button_register.config(text=translations[lang]["register"])
+    button_login.config(text=translations[lang]["login"])
+    label_username.config(text=translations[lang]["username"])
+    label_password.config(text=translations[lang]["password"])
+    button_show_history.config(text=translations[lang]["show_history"])
+
+def show_login_screen():
+    clear_fields()
+    login_frame.tkraise()
+
+def show_calculator_screen():
+    clear_fields()
+    calculator_frame.tkraise()
+
+translations = {
+    "en": {
+        "title": "Payroll Calculator",
+        "brand": "Koutroumanos Leather",
+        "hourly_rate": "Hourly Rate ($):",
+        "start_time": "Start Time (HH:MM):",
+        "end_time": "End Time (HH:MM):",
+        "days_worked": "Days Worked:",
+        "desired_amount": "Desired Amount ($):",
+        "calculate_pay": "Calculate Pay",
+        "calculate_hours_needed": "Calculate Hours Needed",
+        "clear": "Clear",
+        "switch_language": "Switch to Greek",
+        "total_pay": "Total Pay: ${:.2f}",
+        "hours_needed": "Hours Needed: {:.2f}",
+        "input_error": "Input Error",
+        "numeric_values": "Please enter valid numeric values.",
+        "username": "Username:",
+        "password": "Password:",
+        "login": "Login",
+        "register": "Register",
+        "register_success": "Registration Successful",
+        "register_success_msg": "You have registered successfully!",
+        "register_error": "Registration Error",
+        "user_exists": "Username already exists!",
+        "login_success": "Login Successful",
+        "login_success_msg": "You have logged in successfully!",
+        "login_error": "Login Error",
+        "login_fail": "Incorrect username or password!",
+        "show_history": "Show History"
+    },
+    "el": {
+        "title": "Υπολογιστής Μισθού",
+        "brand": "Koutroumanos Leather",
+        "hourly_rate": "Ωρομίσθιο (€):",
+        "start_time": "Ώρα Έναρξης (ΩΩ:ΛΛ):",
+        "end_time": "Ώρα Λήξης (ΩΩ:ΛΛ):",
+        "days_worked": "Ημέρες Εργασίας:",
+        "desired_amount": "Επιθυμητό Ποσό (€):",
+        "calculate_pay": "Υπολογισμός Πληρωμής",
+        "calculate_hours_needed": "Υπολογισμός Απαιτούμενων Ωρών",
+        "clear": "Καθαρισμός",
+        "switch_language": "Αλλαγή σε Αγγλικά",
+        "total_pay": "Συνολική Πληρωμή: €{:.2f}",
+        "hours_needed": "Απαιτούμενες Ώρες: {:.2f}",
+        "input_error": "Σφάλμα Εισόδου",
+        "numeric_values": "Παρακαλώ εισάγετε έγκυρες αριθμητικές τιμές.",
+        "username": "Όνομα Χρήστη:",
+        "password": "Κωδικός:",
+        "login": "Σύνδεση",
+        "register": "Εγγραφή",
+        "register_success": "Επιτυχής Εγγραφή",
+        "register_success_msg": "Έχετε εγγραφεί με επιτυχία!",
+        "register_error": "Σφάλμα Εγγραφής",
+        "user_exists": "Το όνομα χρήστη υπάρχει ήδη!",
+        "login_success": "Επιτυχής Σύνδεση",
+        "login_success_msg": "Έχετε συνδεθεί με επιτυχία!",
+        "login_error": "Σφάλμα Σύνδεσης",
+        "login_fail": "Λάθος όνομα χρήστη ή κωδικός!",
+        "show_history": "Εμφάνιση Ιστορικού"
+    }
+}
+
+current_user_id = None
+lang = "en"
+
+# Database setup
+setup_database()
+
+# Create the main window
+root = tk.Tk()
+root.title(translations[lang]["title"])
+
+# Login frame
+login_frame = tk.Frame(root)
+login_frame.grid(row=0, column=0, sticky="nsew")
+
+label_username = tk.Label(login_frame, text=translations[lang]["username"])
+label_username.grid(row=0, column=0, padx=10, pady=5)
+entry_username = tk.Entry(login_frame)
+entry_username.grid(row=0, column=1, padx=10, pady=5)
+
+label_password = tk.Label(login_frame, text=translations[lang]["password"])
+label_password.grid(row=1, column=0, padx=10, pady=5)
+entry_password = tk.Entry(login_frame, show="*")
+entry_password.grid(row=1, column=1, padx=10, pady=5)
+
+button_login = tk.Button(login_frame, text=translations[lang]["login"], command=login)
+button_login.grid(row=2, column=0, padx=10, pady=5)
+
+button_register = tk.Button(login_frame, text=translations[lang]["register"], command=register)
+button_register.grid(row=2, column=1, padx=10, pady=5)
+
+# Calculator frame
+calculator_frame = tk.Frame(root)
+calculator_frame.grid(row=0, column=0, sticky="nsew")
+
+label_brand = tk.Label(calculator_frame, text=translations[lang]["brand"], font=("Arial", 16, "bold"))
+label_brand.grid(row=0, column=0, columnspan=2, padx=10, pady=10)
+
+label_hourly_rate = tk.Label(calculator_frame, text=translations[lang]["hourly_rate"])
+label_hourly_rate.grid(row=1, column=0, padx=10, pady=5)
+entry_hourly_rate = tk.Entry(calculator_frame)
+entry_hourly_rate.grid(row=1, column=1, padx=10, pady=5)
+
+label_start_time = tk.Label(calculator_frame, text=translations[lang]["start_time"])
+label_start_time.grid(row=2, column=0, padx=10, pady=5)
+entry_start_time = tk.Entry(calculator_frame)
+entry_start_time.grid(row=2, column=1, padx=10, pady=5)
+
+label_end_time = tk.Label(calculator_frame, text=translations[lang]["end_time"])
+label_end_time.grid(row=3, column=0, padx=10, pady=5)
+entry_end_time = tk.Entry(calculator_frame)
+entry_end_time.grid(row=3, column=1, padx=10, pady=5)
+
+label_days_worked = tk.Label(calculator_frame, text=translations[lang]["days_worked"])
+label_days_worked.grid(row=4, column=0, padx=10, pady=5)
+entry_days_worked = tk.Entry(calculator_frame)
+entry_days_worked.grid(row=4, column=1, padx=10, pady=5)
+
+label_desired_amount = tk.Label(calculator_frame, text=translations[lang]["desired_amount"])
+label_desired_amount.grid(row=5, column=0, padx=10, pady=5)
+entry_desired_amount = tk.Entry(calculator_frame)
+entry_desired_amount.grid(row=5, column=1, padx=10, pady=5)
+
+button_calculate_pay = tk.Button(calculator_frame, text=translations[lang]["calculate_pay"], command=calculate_pay)
+button_calculate_pay.grid(row=6, column=0, padx=10, pady=5)
+
+button_calculate_hours_needed = tk.Button(calculator_frame, text=translations[lang]["calculate_hours_needed"], command=calculate_hours_needed)
+button_calculate_hours_needed.grid(row=6, column=1, padx=10, pady=5)
+
+button_clear = tk.Button(calculator_frame, text=translations[lang]["clear"], command=clear_fields)
+button_clear.grid(row=7, column=0, columnspan=2, pady=5)
+
+button_switch_language = tk.Button(calculator_frame, text=translations[lang]["switch_language"], command=switch_language)
+button_switch_language.grid(row=8, column=0, columnspan=2, pady=5)
+
+button_show_history = tk.Button(calculator_frame, text=translations[lang]["show_history"], command=show_history)
+button_show_history.grid(row=9, column=0, columnspan=2, pady=5)
+
+# Label to display results
+label_result = tk.Label(calculator_frame, text="", font=("Arial", 12))
+label_result.grid(row=10, column=0, columnspan=2, pady=10)
+
+# Text widget to display history
+history_text = tk.Text(calculator_frame, height=10, width=50)
+history_text.grid(row=11, column=0, columnspan=2, padx=10, pady=10)
+
+# Raise the login frame initially
+login_frame.tkraise()
+
+# Run the application
+root.mainloop()
